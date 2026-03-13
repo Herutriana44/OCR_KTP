@@ -1,0 +1,379 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<style>
+    .upload-zone {
+        border: 2px dashed var(--border);
+        border-radius: 16px;
+        padding: 3rem 2rem;
+        text-align: center;
+        background: var(--bg-secondary);
+        transition: all 0.2s ease;
+        cursor: pointer;
+        margin-bottom: 2rem;
+    }
+    
+    .upload-zone:hover, .upload-zone.dragover {
+        border-color: var(--accent);
+        background: var(--accent-muted);
+    }
+    
+    .upload-zone input {
+        display: none;
+    }
+    
+    .upload-icon {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+        opacity: 0.7;
+    }
+    
+    .upload-text {
+        color: var(--text-secondary);
+        font-size: 1rem;
+    }
+    
+    .upload-text strong {
+        color: var(--accent);
+    }
+    
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1.5rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: 0.95rem;
+        border: none;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-family: inherit;
+    }
+    
+    .btn-primary {
+        background: var(--accent);
+        color: white;
+    }
+    
+    .btn-primary:hover {
+        background: var(--accent-hover);
+        transform: translateY(-1px);
+    }
+    
+    .btn-primary:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+    }
+    
+    .loading {
+        display: none;
+        text-align: center;
+        padding: 2rem;
+    }
+    
+    .loading.active {
+        display: block;
+    }
+    
+    .spinner {
+        width: 48px;
+        height: 48px;
+        border: 4px solid var(--border);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        margin: 0 auto 1rem;
+    }
+    
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    
+    .results {
+        display: none;
+        margin-top: 2rem;
+    }
+    
+    .results.active {
+        display: block;
+    }
+    
+    .results-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 2rem;
+        margin-top: 1.5rem;
+    }
+    
+    @media (max-width: 768px) {
+        .results-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+    
+    .image-preview {
+        background: var(--bg-card);
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+    }
+    
+    .image-preview img {
+        width: 100%;
+        display: block;
+    }
+    
+    .image-preview figcaption {
+        padding: 0.75rem 1rem;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        border-top: 1px solid var(--border);
+    }
+    
+    .ktp-data {
+        background: var(--bg-card);
+        border-radius: 12px;
+        padding: 1.5rem;
+        border: 1px solid var(--border);
+    }
+    
+    .ktp-data h3 {
+        font-size: 1.1rem;
+        margin-bottom: 1rem;
+        color: var(--accent);
+    }
+    
+    .data-row {
+        display: flex;
+        padding: 0.6rem 0;
+        border-bottom: 1px solid var(--border);
+        gap: 1rem;
+    }
+    
+    .data-row:last-child {
+        border-bottom: none;
+    }
+    
+    .data-label {
+        font-weight: 500;
+        color: var(--text-secondary);
+        min-width: 140px;
+        font-size: 0.9rem;
+    }
+    
+    .data-value {
+        color: var(--text-primary);
+        font-size: 0.95rem;
+    }
+    
+    .raw-text {
+        margin-top: 2rem;
+        background: var(--bg-card);
+        border-radius: 12px;
+        padding: 1rem;
+        border: 1px solid var(--border);
+    }
+    
+    .raw-text h4 {
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+        margin-bottom: 0.75rem;
+    }
+    
+    .raw-text pre {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+    
+    .error-msg {
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid var(--error);
+        color: #fca5a5;
+        padding: 1rem;
+        border-radius: 10px;
+        margin-top: 1rem;
+        display: none;
+    }
+    
+    .error-msg.active {
+        display: block;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<form id="uploadForm">
+    <div class="upload-zone" id="uploadZone">
+        <input type="file" id="fileInput" name="file" accept="image/png,image/jpeg,image/jpg,image/webp">
+        <div class="upload-icon">📄</div>
+        <p class="upload-text">
+            <strong>Klik atau drag & drop</strong> foto KTP di sini<br>
+            Format: PNG, JPG, JPEG (max 16MB)
+        </p>
+    </div>
+    <div style="text-align: center;">
+        <button type="submit" class="btn btn-primary" id="submitBtn" disabled>
+            Proses OCR
+        </button>
+    </div>
+</form>
+
+<div class="loading" id="loading">
+    <div class="spinner"></div>
+    <p>Memproses gambar... (Preprocessing → OCR)</p>
+</div>
+
+<div class="error-msg" id="errorMsg"></div>
+
+<div class="results" id="results">
+    <h2 style="margin-bottom: 1rem; font-size: 1.25rem;">Hasil Deteksi</h2>
+    <div class="results-grid">
+        <div>
+            <figure class="image-preview">
+                <img id="processedImg" src="" alt="Gambar diproses">
+                <figcaption>Gambar setelah preprocessing</figcaption>
+            </figure>
+        </div>
+        <div class="ktp-data">
+            <h3>Informasi KTP</h3>
+            <div id="ktpDataList"></div>
+        </div>
+    </div>
+    <div class="raw-text">
+        <h4>Teks Terdeteksi (Raw OCR)</h4>
+        <pre id="rawText"></pre>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const uploadZone = document.getElementById('uploadZone');
+    const fileInput = document.getElementById('fileInput');
+    const uploadForm = document.getElementById('uploadForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const loading = document.getElementById('loading');
+    const results = document.getElementById('results');
+    const errorMsg = document.getElementById('errorMsg');
+    const ktpDataList = document.getElementById('ktpDataList');
+    const rawText = document.getElementById('rawText');
+    const processedImg = document.getElementById('processedImg');
+    
+    // Drag & drop
+    uploadZone.addEventListener('click', () => fileInput.click());
+    
+    uploadZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadZone.classList.add('dragover');
+    });
+    
+    uploadZone.addEventListener('dragleave', () => {
+        uploadZone.classList.remove('dragover');
+    });
+    
+    uploadZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadZone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) {
+            fileInput.files = e.dataTransfer.files;
+            updateSubmitState();
+        }
+    });
+    
+    fileInput.addEventListener('change', updateSubmitState);
+    
+    function updateSubmitState() {
+        submitBtn.disabled = !fileInput.files.length;
+    }
+    
+    uploadForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!fileInput.files.length) return;
+        
+        errorMsg.classList.remove('active');
+        results.classList.remove('active');
+        loading.classList.add('active');
+        submitBtn.disabled = true;
+        
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        
+        try {
+            const res = await fetch('/upload', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await res.json();
+            
+            if (!res.ok) {
+                throw new Error(data.error || 'Terjadi kesalahan');
+            }
+            
+            if (data.success) {
+                displayResults(data);
+            } else {
+                throw new Error(data.error || 'Gagal memproses');
+            }
+        } catch (err) {
+            errorMsg.textContent = err.message;
+            errorMsg.classList.add('active');
+        } finally {
+            loading.classList.remove('active');
+            submitBtn.disabled = false;
+        }
+    });
+    
+    function displayResults(data) {
+        processedImg.src = data.processed_image;
+        
+        const labels = {
+            'NIK': 'NIK',
+            'Nama': 'Nama Lengkap',
+            'Tempat Lahir': 'Tempat Lahir',
+            'Tanggal Lahir': 'Tanggal Lahir',
+            'Jenis Kelamin': 'Jenis Kelamin',
+            'Alamat': 'Alamat',
+            'RT/RW': 'RT/RW',
+            'Kel/Desa': 'Kel/Desa',
+            'Kecamatan': 'Kecamatan',
+            'Agama': 'Agama',
+            'Status Perkawinan': 'Status Perkawinan',
+            'Pekerjaan': 'Pekerjaan',
+            'Kewarganegaraan': 'Kewarganegaraan',
+            'Berlaku Hingga': 'Berlaku Hingga'
+        };
+        
+        let html = '';
+        for (const [key, value] of Object.entries(data.ktp_data)) {
+            const label = labels[key] || key;
+            html += `
+                <div class="data-row">
+                    <span class="data-label">${label}</span>
+                    <span class="data-value">${escapeHtml(value)}</span>
+                </div>
+            `;
+        }
+        
+        if (!html) {
+            html = '<p style="color: var(--text-secondary);">Tidak ada data terdeteksi. Coba foto KTP dengan pencahayaan lebih baik.</p>';
+        }
+        
+        ktpDataList.innerHTML = html;
+        rawText.textContent = data.raw_lines?.join('\n') || 'Tidak ada teks terdeteksi';
+        
+        results.classList.add('active');
+        results.scrollIntoView({ behavior: 'smooth' });
+    }
+    
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+</script>
+{% endblock %}
