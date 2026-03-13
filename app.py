@@ -78,9 +78,11 @@ def upload_file():
             return f'/processed/{os.path.basename(path)}'
         
         save_img(prep_result['original'], 'original')
+        save_img(prep_result['grayscale'], 'grayscale')
         save_img(prep_result['preprocessed'], 'preprocessed')
         save_img(prep_result['edge_detection'], 'edge')
         save_img(prep_result['contour_detection'], 'contour')
+        save_img(prep_result['largest_rectangle'], 'largest_rect')
         save_img(prep_result['cropped'], 'crop')
         
         # 2. Enhancement untuk OCR
@@ -117,9 +119,11 @@ def upload_file():
             'inference_log_enabled': show_log,
             'images': {
                 'original': f'/processed/original_{unique_id}.jpg',
+                'grayscale': f'/processed/grayscale_{unique_id}.jpg',
                 'preprocessed': f'/processed/preprocessed_{unique_id}.jpg',
                 'edge_detection': f'/processed/edge_{unique_id}.jpg',
                 'contour_detection': f'/processed/contour_{unique_id}.jpg',
+                'largest_rectangle': f'/processed/largest_rect_{unique_id}.jpg',
                 'cropped': f'/processed/crop_{unique_id}.jpg',
                 'ocr_detection': detection_url
             }

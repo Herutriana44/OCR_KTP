@@ -425,12 +425,14 @@
         
         // Pipeline images
         const imageLabels = {
-            original: 'Gambar Original',
-            preprocessed: 'Hasil Preprocessing',
-            edge_detection: 'Edge Detection',
-            contour_detection: 'Edge + Contour Detection',
-            cropped: 'Hasil Crop',
-            ocr_detection: 'Hasil Deteksi OCR'
+            original: '1. Image',
+            grayscale: '2. Grayscale',
+            preprocessed: '3. Gaussian Blur',
+            edge_detection: '4. Canny Edge',
+            contour_detection: '5. Find Contours',
+            largest_rectangle: '6. Largest Rectangle',
+            cropped: '7. Perspective Transform → Cropped KTP',
+            ocr_detection: '8. Hasil Deteksi OCR'
         };
         let pipelineHtml = '';
         if (data.images) {
