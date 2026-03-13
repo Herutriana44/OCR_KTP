@@ -6,6 +6,13 @@ Deteksi teks dan layout dari gambar KTP
 import re
 from typing import Dict, List, Tuple, Optional
 import numpy as np
+import cv2
+
+try:
+    from config import SHOW_INFERENCE_LOG
+except ImportError:
+    # Set False untuk menonaktifkan inference log di web
+    SHOW_INFERENCE_LOG = True
 
 
 def extract_ktp_info(ocr_results: List) -> Dict[str, str]:
@@ -176,34 +183,71 @@ def extract_ktp_info(ocr_results: List) -> Dict[str, str]:
     return result
 
 
-def run_ocr(image_path: str, use_angle_cls: bool = True) -> Tuple[List, Dict[str, str]]:
+def draw_ocr_boxes(image_path: str, ocr_results: List) -> Optional[np.ndarray]:
+    """
+    Gambar bounding box dari hasil OCR pada image.
+    """
+    try:
+        img = cv2.imread(image_path)
+        if img is None:
+            return None
+            
+        for item in ocr_results:
+            if item and len(item) >= 2:
+                box = np.array(item[0]).astype(np.int32)
+                text_info = item[1]
+                text = text_info[0] if isinstance(text_info, (list, tuple)) else str(text_info)
+                conf = text_info[1] if isinstance(text_info, (list, tuple)) and len(text_info) > 1 else 0
+                
+                cv2.polylines(img, [box], True, (0, 255, 0), 2)
+                x_min = int(min(p[0] for p in box))
+                y_min = int(min(p[1] for p in box))
+                label = (text[:25] + '...') if len(text) > 25 else text
+                cv2.putText(img, label, (x_min, max(15, y_min - 5)), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        return img
+    except Exception:
+        return None
+
+
+def run_ocr(image_path: str, use_angle_cls: bool = True, 
+            show_log: Optional[bool] = None) -> Tuple[List, Dict[str, str], List[str], Optional[np.ndarray]]:
     """
     Jalankan PaddleOCR pada gambar KTP.
     
     Args:
         image_path: Path ke file gambar
         use_angle_cls: Gunakan angle classification (untuk teks miring)
+        show_log: Override SHOW_INFERENCE_LOG. None = gunakan default
         
     Returns:
-        Tuple (raw_ocr_results, parsed_ktp_info)
+        Tuple (raw_ocr_results, parsed_ktp_info, inference_log, detection_vis_image)
     """
+    log_enabled = show_log if show_log is not None else SHOW_INFERENCE_LOG
+    inference_log = []
+    
+    def log(msg: str):
+        if log_enabled:
+            inference_log.append(msg)
+    
     try:
         from paddleocr import PaddleOCR
         
-        # Init PaddleOCR - gunakan bahasa Indonesia/Inggris
+        log("[1/4] Inisialisasi PaddleOCR...")
         ocr = PaddleOCR(
             use_angle_cls=use_angle_cls,
-            lang='en',  # PaddleOCR 'en' bagus untuk alphanumeric
+            lang='en',
             use_gpu=False,
             show_log=False
         )
         
+        log("[2/4] Menjalankan deteksi teks...")
         result = ocr.ocr(image_path, cls=use_angle_cls)
         
         if result is None or (isinstance(result, list) and len(result) == 0):
-            return [], {}
+            log("[3/4] Tidak ada teks terdeteksi")
+            return [], {}, inference_log, None
         
-        # Flatten result - PaddleOCR returns [[[box, (text, conf)], ...]] for single image
         ocr_lines = []
         if isinstance(result, list):
             for page in result:
@@ -212,12 +256,20 @@ def run_ocr(image_path: str, use_angle_cls: bool = True) -> Tuple[List, Dict[str
                         if item and len(item) >= 2:
                             ocr_lines.append(item)
         
+        log(f"[3/4] Terdeteksi {len(ocr_lines)} region teks")
+        
+        log("[4/4] Parsing field KTP...")
         parsed = extract_ktp_info(ocr_lines)
-        return ocr_lines, parsed
+        
+        log(f"[Selesai] NIK: {parsed.get('NIK', '-')} | Nama: {parsed.get('Nama', '-')[:30]}...")
+        
+        detection_vis = draw_ocr_boxes(image_path, ocr_lines)
+        
+        return ocr_lines, parsed, inference_log, detection_vis
         
     except ImportError as e:
-        print(f"PaddleOCR not installed: {e}")
-        return [], {}
+        log(f"[Error] PaddleOCR not installed: {e}")
+        return [], {}, inference_log, None
     except Exception as e:
-        print(f"OCR Error: {e}")
-        return [], {}
+        log(f"[Error] OCR Error: {e}")
+        return [], {}, inference_log, None

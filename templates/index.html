@@ -128,9 +128,46 @@
         margin-top: 1.5rem;
     }
     
+    .pipeline-images {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-bottom: 2rem;
+    }
+    
+    .pipeline-images .image-preview {
+        margin-bottom: 0;
+    }
+    
+    .inference-log {
+        background: var(--bg-card);
+        border-radius: 12px;
+        padding: 1rem;
+        border: 1px solid var(--border);
+        margin-bottom: 2rem;
+    }
+    
+    .inference-log h4 {
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+        margin-bottom: 0.75rem;
+    }
+    
+    .inference-log pre {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        white-space: pre-wrap;
+        word-break: break-all;
+        max-height: 150px;
+        overflow-y: auto;
+    }
+    
     @media (max-width: 768px) {
         .results-grid {
             grid-template-columns: 1fr;
+        }
+        .pipeline-images {
+            grid-template-columns: 1fr 1fr;
         }
     }
     
@@ -256,21 +293,24 @@
 
 <div class="results" id="results">
     <h2 style="margin-bottom: 1rem; font-size: 1.25rem;">Hasil Deteksi</h2>
+    
+    <div class="inference-log" id="inferenceLogSection" style="display: none;">
+        <h4>Log Inference</h4>
+        <pre id="inferenceLog"></pre>
+    </div>
+    
+    <h3 style="font-size: 1rem; margin-bottom: 1rem; color: var(--text-secondary);">Pipeline Gambar</h3>
+    <div class="pipeline-images" id="pipelineImages"></div>
+    
     <div class="results-grid">
-        <div>
-            <figure class="image-preview">
-                <img id="processedImg" src="" alt="Gambar diproses">
-                <figcaption>Gambar setelah preprocessing</figcaption>
-            </figure>
-        </div>
         <div class="ktp-data">
             <h3>Informasi KTP</h3>
             <div id="ktpDataList"></div>
         </div>
-    </div>
-    <div class="raw-text">
-        <h4>Teks Terdeteksi (Raw OCR)</h4>
-        <pre id="rawText"></pre>
+        <div class="raw-text">
+            <h4>Teks Terdeteksi (Raw OCR)</h4>
+            <pre id="rawText"></pre>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -288,7 +328,9 @@
     const errorMsg = document.getElementById('errorMsg');
     const ktpDataList = document.getElementById('ktpDataList');
     const rawText = document.getElementById('rawText');
-    const processedImg = document.getElementById('processedImg');
+    const pipelineImages = document.getElementById('pipelineImages');
+    const inferenceLogSection = document.getElementById('inferenceLogSection');
+    const inferenceLog = document.getElementById('inferenceLog');
     
     let stream = null;
     
@@ -373,7 +415,35 @@
     });
     
     function displayResults(data) {
-        processedImg.src = data.processed_image;
+        // Inference log
+        if (data.inference_log_enabled && data.inference_log?.length) {
+            inferenceLogSection.style.display = 'block';
+            inferenceLog.textContent = data.inference_log.join('\n');
+        } else {
+            inferenceLogSection.style.display = 'none';
+        }
+        
+        // Pipeline images
+        const imageLabels = {
+            original: 'Gambar Original',
+            preprocessed: 'Hasil Preprocessing',
+            edge_detection: 'Edge Detection',
+            contour_detection: 'Edge + Contour Detection',
+            cropped: 'Hasil Crop',
+            ocr_detection: 'Hasil Deteksi OCR'
+        };
+        let pipelineHtml = '';
+        if (data.images) {
+            for (const [key, url] of Object.entries(data.images)) {
+                pipelineHtml += `
+                    <figure class="image-preview">
+                        <img src="${url}" alt="${imageLabels[key] || key}">
+                        <figcaption>${imageLabels[key] || key}</figcaption>
+                    </figure>
+                `;
+            }
+        }
+        pipelineImages.innerHTML = pipelineHtml;
         
         const labels = {
             'NIK': 'NIK',

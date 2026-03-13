@@ -1,6 +1,6 @@
 """
 Flask Web Application untuk OCR KTP
-Flow: Kamera Webcam -> Ambil Gambar -> Preprocessing (OpenCV) -> OCR (PaddleOCR) -> Tampilkan Hasil
+Flow: Kamera -> Ambil Gambar -> Edge+Contour Crop -> Preprocessing -> OCR -> Tampilkan Hasil
 """
 
 import os
@@ -8,17 +8,23 @@ import uuid
 from flask import Flask, render_template, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
 import cv2
-import numpy as np
 
 from preprocessing import preprocess_ktp_image, enhance_for_ocr
-from ocr_processor import run_ocr, extract_ktp_info
+from ocr_processor import run_ocr
+
+try:
+    from config import SHOW_INFERENCE_LOG
+except ImportError:
+    SHOW_INFERENCE_LOG = True
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
 app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), 'uploads')
 app.config['PROCESSED_FOLDER'] = os.path.join(os.path.dirname(__file__), 'processed')
 
-# Buat folder jika belum ada
+# Set False untuk menonaktifkan inference log di web
+app.config['ENABLE_INFERENCE_LOG'] = SHOW_INFERENCE_LOG
+
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['PROCESSED_FOLDER'], exist_ok=True)
 
@@ -39,7 +45,7 @@ def index():
 def upload_file():
     """
     Endpoint upload dan proses OCR.
-    Flow: Simpan -> Preprocess -> OCR -> Return hasil
+    Flow: Simpan -> Edge+Contour Crop -> Preprocess -> OCR -> Return hasil
     """
     if 'file' not in request.files and 'image' not in request.files:
         return jsonify({'error': 'Tidak ada file yang diupload'}), 400
@@ -49,56 +55,74 @@ def upload_file():
     if not file or (file.filename == '' and not file.content_length):
         return jsonify({'error': 'File tidak dipilih atau gambar tidak valid'}), 400
     
-    # Untuk capture dari webcam, filename bisa kosong - gunakan default
     filename = secure_filename(file.filename) if file.filename else 'capture.jpg'
     if not allowed_file(filename):
         return jsonify({'error': 'Format file tidak didukung. Gunakan PNG, JPG, atau JPEG.'}), 400
     
     try:
-        # Simpan file upload (filename sudah di-set di atas)
         unique_id = str(uuid.uuid4())[:8]
         save_filename = f"{unique_id}_{filename}"
         upload_path = os.path.join(app.config['UPLOAD_FOLDER'], save_filename)
         file.save(upload_path)
         
-        # 1. PREPROCESSING - Crop dan enhance dengan OpenCV
-        processed_img = preprocess_ktp_image(upload_path)
+        # 1. PREPROCESSING - Edge Detection + Contour Detection
+        prep_result = preprocess_ktp_image(upload_path)
         
-        if processed_img is None:
-            # Fallback: baca langsung
-            processed_img = cv2.imread(upload_path)
-        
-        if processed_img is None:
+        if prep_result is None:
             return jsonify({'error': 'Gagal memproses gambar'}), 500
         
-        # Enhancement untuk OCR
-        enhanced_img = enhance_for_ocr(processed_img)
+        # Simpan semua intermediate images
+        def save_img(img, name):
+            path = os.path.join(app.config['PROCESSED_FOLDER'], f"{name}_{unique_id}.jpg")
+            cv2.imwrite(path, img)
+            return f'/processed/{os.path.basename(path)}'
         
-        # Simpan gambar yang sudah diproses (untuk preview)
-        processed_filename = f"proc_{unique_id}.jpg"
-        processed_path = os.path.join(app.config['PROCESSED_FOLDER'], processed_filename)
-        cv2.imwrite(processed_path, enhanced_img)
+        save_img(prep_result['original'], 'original')
+        save_img(prep_result['preprocessed'], 'preprocessed')
+        save_img(prep_result['edge_detection'], 'edge')
+        save_img(prep_result['contour_detection'], 'contour')
+        save_img(prep_result['cropped'], 'crop')
         
-        # 2. OCR - PaddleOCR
-        ocr_results, ktp_info = run_ocr(processed_path, use_angle_cls=True)
+        # 2. Enhancement untuk OCR
+        enhanced_img = enhance_for_ocr(prep_result['cropped'])
+        enhanced_path = os.path.join(app.config['PROCESSED_FOLDER'], f"enhanced_{unique_id}.jpg")
+        cv2.imwrite(enhanced_path, enhanced_img)
         
-        # Jika OCR dari processed gagal, coba dari original
+        # 3. OCR - PaddleOCR
+        show_log = app.config.get('ENABLE_INFERENCE_LOG', True)
+        ocr_results, ktp_info, inference_log, detection_vis = run_ocr(
+            enhanced_path, use_angle_cls=True, show_log=show_log
+        )
+        
         if not ktp_info.get('raw_text') and not ktp_info.get('NIK'):
-            ocr_results, ktp_info = run_ocr(upload_path, use_angle_cls=True)
+            ocr_results, ktp_info, inference_log, detection_vis = run_ocr(
+                upload_path, use_angle_cls=True, show_log=show_log
+            )
         
-        # Bersihkan field kosong dari raw untuk response
+        if detection_vis is not None:
+            det_path = os.path.join(app.config['PROCESSED_FOLDER'], f"detection_{unique_id}.jpg")
+            cv2.imwrite(det_path, detection_vis)
+            detection_url = f'/processed/{os.path.basename(det_path)}'
+        else:
+            detection_url = f'/processed/crop_{unique_id}.jpg'
+        
         display_info = {k: v for k, v in ktp_info.items() 
                        if k not in ('raw_text', 'raw_lines') and v}
-        
-        # Format raw lines untuk ditampilkan
-        raw_lines = ktp_info.get('raw_lines', [])
         
         return jsonify({
             'success': True,
             'ktp_data': display_info,
-            'raw_lines': raw_lines,
-            'processed_image': f'/processed/{processed_filename}',
-            'original_image': f'/uploads/{save_filename}'
+            'raw_lines': ktp_info.get('raw_lines', []),
+            'inference_log': inference_log if show_log else [],
+            'inference_log_enabled': show_log,
+            'images': {
+                'original': f'/processed/original_{unique_id}.jpg',
+                'preprocessed': f'/processed/preprocessed_{unique_id}.jpg',
+                'edge_detection': f'/processed/edge_{unique_id}.jpg',
+                'contour_detection': f'/processed/contour_{unique_id}.jpg',
+                'cropped': f'/processed/crop_{unique_id}.jpg',
+                'ocr_detection': detection_url
+            }
         })
         
     except Exception as e:
@@ -107,13 +131,11 @@ def upload_file():
 
 @app.route('/uploads/<filename>')
 def serve_upload(filename):
-    """Serve file dari folder uploads"""
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 
 @app.route('/processed/<filename>')
 def serve_processed(filename):
-    """Serve file dari folder processed"""
     return send_from_directory(app.config['PROCESSED_FOLDER'], filename)
 
 
