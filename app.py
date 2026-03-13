@@ -1,6 +1,6 @@
 """
 Flask Web Application untuk OCR KTP
-Flow: Upload Foto -> Preprocessing (OpenCV) -> OCR (PaddleOCR) -> Tampilkan Hasil
+Flow: Kamera Webcam -> Ambil Gambar -> Preprocessing (OpenCV) -> OCR (PaddleOCR) -> Tampilkan Hasil
 """
 
 import os
@@ -31,7 +31,7 @@ def allowed_file(filename):
 
 @app.route('/')
 def index():
-    """Halaman utama - upload foto KTP"""
+    """Halaman utama - kamera webcam untuk foto KTP"""
     return render_template('index.html')
 
 
@@ -46,15 +46,16 @@ def upload_file():
     
     file = request.files.get('file') or request.files.get('image')
     
-    if file.filename == '':
-        return jsonify({'error': 'File tidak dipilih'}), 400
+    if not file or (file.filename == '' and not file.content_length):
+        return jsonify({'error': 'File tidak dipilih atau gambar tidak valid'}), 400
     
-    if not allowed_file(file.filename):
+    # Untuk capture dari webcam, filename bisa kosong - gunakan default
+    filename = secure_filename(file.filename) if file.filename else 'capture.jpg'
+    if not allowed_file(filename):
         return jsonify({'error': 'Format file tidak didukung. Gunakan PNG, JPG, atau JPEG.'}), 400
     
     try:
-        # Simpan file upload
-        filename = secure_filename(file.filename)
+        # Simpan file upload (filename sudah di-set di atas)
         unique_id = str(uuid.uuid4())[:8]
         save_filename = f"{unique_id}_{filename}"
         upload_path = os.path.join(app.config['UPLOAD_FOLDER'], save_filename)

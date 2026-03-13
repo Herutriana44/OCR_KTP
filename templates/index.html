@@ -2,39 +2,51 @@
 
 {% block extra_css %}
 <style>
-    .upload-zone {
-        border: 2px dashed var(--border);
-        border-radius: 16px;
-        padding: 3rem 2rem;
-        text-align: center;
+    .camera-section {
         background: var(--bg-secondary);
-        transition: all 0.2s ease;
-        cursor: pointer;
+        border-radius: 16px;
+        padding: 1.5rem;
+        border: 1px solid var(--border);
         margin-bottom: 2rem;
     }
     
-    .upload-zone:hover, .upload-zone.dragover {
-        border-color: var(--accent);
-        background: var(--accent-muted);
+    .camera-preview {
+        width: 100%;
+        max-width: 500px;
+        aspect-ratio: 16/10;
+        background: #000;
+        border-radius: 12px;
+        object-fit: cover;
+        display: block;
+        margin: 0 auto 1rem;
     }
     
-    .upload-zone input {
-        display: none;
-    }
-    
-    .upload-icon {
-        font-size: 3rem;
-        margin-bottom: 1rem;
-        opacity: 0.7;
-    }
-    
-    .upload-text {
+    .camera-placeholder {
+        width: 100%;
+        max-width: 500px;
+        aspect-ratio: 16/10;
+        background: var(--bg-card);
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        margin: 0 auto 1rem;
         color: var(--text-secondary);
-        font-size: 1rem;
+        border: 2px dashed var(--border);
     }
     
-    .upload-text strong {
-        color: var(--accent);
+    .camera-placeholder .icon {
+        font-size: 3rem;
+        margin-bottom: 0.5rem;
+        opacity: 0.6;
+    }
+    
+    .camera-controls {
+        display: flex;
+        gap: 1rem;
+        justify-content: center;
+        flex-wrap: wrap;
     }
     
     .btn {
@@ -65,6 +77,15 @@
         opacity: 0.6;
         cursor: not-allowed;
         transform: none;
+    }
+    
+    .btn-secondary {
+        background: var(--border);
+        color: var(--text-primary);
+    }
+    
+    .btn-secondary:hover {
+        background: #3f3f46;
     }
     
     .loading {
@@ -206,21 +227,25 @@
 {% endblock %}
 
 {% block content %}
-<form id="uploadForm">
-    <div class="upload-zone" id="uploadZone">
-        <input type="file" id="fileInput" name="file" accept="image/png,image/jpeg,image/jpg,image/webp">
-        <div class="upload-icon">📄</div>
-        <p class="upload-text">
-            <strong>Klik atau drag & drop</strong> foto KTP di sini<br>
-            Format: PNG, JPG, JPEG (max 16MB)
-        </p>
+<div class="camera-section">
+    <div id="cameraPlaceholder" class="camera-placeholder">
+        <span class="icon">📷</span>
+        <p>Klik "Hidupkan Kamera" untuk memulai</p>
     </div>
-    <div style="text-align: center;">
-        <button type="submit" class="btn btn-primary" id="submitBtn" disabled>
-            Proses OCR
+    <video id="videoPreview" class="camera-preview" style="display: none;" playsinline autoplay muted></video>
+    <canvas id="captureCanvas" style="display: none;"></canvas>
+    <div class="camera-controls">
+        <button type="button" class="btn btn-primary" id="startCameraBtn">
+            Hidupkan Kamera
+        </button>
+        <button type="button" class="btn btn-primary" id="captureBtn" disabled>
+            Ambil Gambar
+        </button>
+        <button type="button" class="btn btn-secondary" id="stopCameraBtn" style="display: none;">
+            Matikan Kamera
         </button>
     </div>
-</form>
+</div>
 
 <div class="loading" id="loading">
     <div class="spinner"></div>
@@ -252,10 +277,12 @@
 
 {% block extra_js %}
 <script>
-    const uploadZone = document.getElementById('uploadZone');
-    const fileInput = document.getElementById('fileInput');
-    const uploadForm = document.getElementById('uploadForm');
-    const submitBtn = document.getElementById('submitBtn');
+    const cameraPlaceholder = document.getElementById('cameraPlaceholder');
+    const videoPreview = document.getElementById('videoPreview');
+    const captureCanvas = document.getElementById('captureCanvas');
+    const startCameraBtn = document.getElementById('startCameraBtn');
+    const captureBtn = document.getElementById('captureBtn');
+    const stopCameraBtn = document.getElementById('stopCameraBtn');
     const loading = document.getElementById('loading');
     const results = document.getElementById('results');
     const errorMsg = document.getElementById('errorMsg');
@@ -263,69 +290,86 @@
     const rawText = document.getElementById('rawText');
     const processedImg = document.getElementById('processedImg');
     
-    // Drag & drop
-    uploadZone.addEventListener('click', () => fileInput.click());
+    let stream = null;
     
-    uploadZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        uploadZone.classList.add('dragover');
-    });
-    
-    uploadZone.addEventListener('dragleave', () => {
-        uploadZone.classList.remove('dragover');
-    });
-    
-    uploadZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        uploadZone.classList.remove('dragover');
-        if (e.dataTransfer.files.length) {
-            fileInput.files = e.dataTransfer.files;
-            updateSubmitState();
-        }
-    });
-    
-    fileInput.addEventListener('change', updateSubmitState);
-    
-    function updateSubmitState() {
-        submitBtn.disabled = !fileInput.files.length;
-    }
-    
-    uploadForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        if (!fileInput.files.length) return;
-        
+    // Hidupkan kamera
+    startCameraBtn.addEventListener('click', async () => {
         errorMsg.classList.remove('active');
-        results.classList.remove('active');
-        loading.classList.add('active');
-        submitBtn.disabled = true;
-        
-        const formData = new FormData();
-        formData.append('file', fileInput.files[0]);
-        
         try {
-            const res = await fetch('/upload', {
-                method: 'POST',
-                body: formData
+            stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+                audio: false 
             });
-            
-            const data = await res.json();
-            
-            if (!res.ok) {
-                throw new Error(data.error || 'Terjadi kesalahan');
-            }
-            
-            if (data.success) {
-                displayResults(data);
-            } else {
-                throw new Error(data.error || 'Gagal memproses');
-            }
+            videoPreview.srcObject = stream;
+            videoPreview.style.display = 'block';
+            cameraPlaceholder.style.display = 'none';
+            captureBtn.disabled = false;
+            startCameraBtn.style.display = 'none';
+            stopCameraBtn.style.display = 'inline-flex';
         } catch (err) {
-            errorMsg.textContent = err.message;
+            errorMsg.textContent = 'Gagal mengakses kamera: ' + (err.message || 'Izinkan akses kamera di pengaturan browser');
             errorMsg.classList.add('active');
-        } finally {
-            loading.classList.remove('active');
-            submitBtn.disabled = false;
         }
+    });
+    
+    // Matikan kamera
+    stopCameraBtn.addEventListener('click', () => {
+        if (stream) {
+            stream.getTracks().forEach(t => t.stop());
+            stream = null;
+        }
+        videoPreview.srcObject = null;
+        videoPreview.style.display = 'none';
+        cameraPlaceholder.style.display = 'flex';
+        captureBtn.disabled = true;
+        startCameraBtn.style.display = 'inline-flex';
+        stopCameraBtn.style.display = 'none';
+    });
+    
+    // Ambil gambar dan kirim ke OCR
+    captureBtn.addEventListener('click', async () => {
+        if (!stream || videoPreview.readyState !== 4) return;
+        
+        captureCanvas.width = videoPreview.videoWidth;
+        captureCanvas.height = videoPreview.videoHeight;
+        captureCanvas.getContext('2d').drawImage(videoPreview, 0, 0);
+        
+        captureCanvas.toBlob(async (blob) => {
+            if (!blob) return;
+            
+            errorMsg.classList.remove('active');
+            results.classList.remove('active');
+            loading.classList.add('active');
+            captureBtn.disabled = true;
+            
+            const formData = new FormData();
+            formData.append('file', blob, 'capture.jpg');
+            
+            try {
+                const res = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await res.json();
+                
+                if (!res.ok) {
+                    throw new Error(data.error || 'Terjadi kesalahan');
+                }
+                
+                if (data.success) {
+                    displayResults(data);
+                } else {
+                    throw new Error(data.error || 'Gagal memproses');
+                }
+            } catch (err) {
+                errorMsg.textContent = err.message;
+                errorMsg.classList.add('active');
+            } finally {
+                loading.classList.remove('active');
+                captureBtn.disabled = false;
+            }
+        }, 'image/jpeg', 0.9);
     });
     
     function displayResults(data) {
