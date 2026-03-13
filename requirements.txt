@@ -2,8 +2,8 @@
 Flask==3.0.0
 Werkzeug==3.0.1
 
-# Image Processing
-opencv-python==4.9.0.80
+# Image Processing (opencv<=4.6.0.66 required by paddleocr 2.7.3)
+opencv-python==4.6.0.66
 numpy==1.26.2
 Pillow==10.1.0
 
