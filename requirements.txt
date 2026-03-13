@@ -7,6 +7,10 @@ opencv-python==4.6.0.66
 numpy==1.26.2
 Pillow==10.1.0
 
+# YOLOv5 Instance Segmentation (KTP Detection)
+torch>=2.0.0
+torchvision>=0.15.0
+
 # PaddleOCR - CPU version
 # Untuk GPU: ganti paddlepaddle dengan paddlepaddle-gpu
 paddlepaddle==2.6.2

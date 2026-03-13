@@ -284,9 +284,9 @@
     </div>
 </div>
 
-<div class="loading" id="loading">
+    <div class="loading" id="loading">
     <div class="spinner"></div>
-    <p>Memproses gambar... (Preprocessing → OCR)</p>
+    <p>Memproses gambar... (YOLOv5 Detection → Crop → OCR)</p>
 </div>
 
 <div class="error-msg" id="errorMsg"></div>
@@ -425,14 +425,11 @@
         
         // Pipeline images
         const imageLabels = {
-            original: '1. Image',
-            grayscale: '2. Grayscale',
-            preprocessed: '3. Gaussian Blur',
-            edge_detection: '4. Canny Edge',
-            contour_detection: '5. Find Contours',
-            largest_rectangle: '6. Largest Rectangle',
-            cropped: '7. Perspective Transform → Cropped KTP',
-            ocr_detection: '8. Hasil Deteksi OCR'
+            original: '1. Image Original',
+            yolov5_detection: '2. YOLOv5 KTP Detection',
+            cropped: '3. Crop KTP',
+            enhanced: '4. Enhanced untuk OCR',
+            ocr_detection: '5. Hasil Deteksi OCR'
         };
         let pipelineHtml = '';
         if (data.images) {

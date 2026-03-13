@@ -1,6 +1,6 @@
 """
 Flask Web Application untuk OCR KTP
-Flow: Kamera -> Ambil Gambar -> Edge+Contour Crop -> Preprocessing -> OCR -> Tampilkan Hasil
+Flow: Kamera -> Ambil Gambar -> YOLOv5 KTP Detection (instance seg) -> Crop -> Preprocessing -> OCR -> Tampilkan Hasil
 """
 
 import os
@@ -9,7 +9,8 @@ from flask import Flask, render_template, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
 import cv2
 
-from preprocessing import preprocess_ktp_image, enhance_for_ocr
+from ktp_detector import detect_and_crop_ktp
+from preprocessing import enhance_for_ocr
 from ocr_processor import run_ocr
 
 try:
@@ -45,7 +46,7 @@ def index():
 def upload_file():
     """
     Endpoint upload dan proses OCR.
-    Flow: Simpan -> Edge+Contour Crop -> Preprocess -> OCR -> Return hasil
+    Flow: Simpan -> YOLOv5 KTP Detection (max 1, label ktp) -> Crop -> Enhancement -> OCR -> Return hasil
     """
     if 'file' not in request.files and 'image' not in request.files:
         return jsonify({'error': 'Tidak ada file yang diupload'}), 400
@@ -65,28 +66,23 @@ def upload_file():
         upload_path = os.path.join(app.config['UPLOAD_FOLDER'], save_filename)
         file.save(upload_path)
         
-        # 1. PREPROCESSING - Edge Detection + Contour Detection
-        prep_result = preprocess_ktp_image(upload_path)
+        # 1. YOLOv5 Instance Segmentation - Deteksi KTP (max 1, label ktp)
+        det_result = detect_and_crop_ktp(upload_path)
         
-        if prep_result is None:
+        if det_result is None:
             return jsonify({'error': 'Gagal memproses gambar'}), 500
         
-        # Simpan semua intermediate images
         def save_img(img, name):
             path = os.path.join(app.config['PROCESSED_FOLDER'], f"{name}_{unique_id}.jpg")
             cv2.imwrite(path, img)
             return f'/processed/{os.path.basename(path)}'
         
-        save_img(prep_result['original'], 'original')
-        save_img(prep_result['grayscale'], 'grayscale')
-        save_img(prep_result['preprocessed'], 'preprocessed')
-        save_img(prep_result['edge_detection'], 'edge')
-        save_img(prep_result['contour_detection'], 'contour')
-        save_img(prep_result['largest_rectangle'], 'largest_rect')
-        save_img(prep_result['cropped'], 'crop')
+        save_img(det_result['original'], 'original')
+        save_img(det_result['detection_vis'], 'yolov5_detection')
+        save_img(det_result['cropped'], 'crop')
         
         # 2. Enhancement untuk OCR
-        enhanced_img = enhance_for_ocr(prep_result['cropped'])
+        enhanced_img = enhance_for_ocr(det_result['cropped'])
         enhanced_path = os.path.join(app.config['PROCESSED_FOLDER'], f"enhanced_{unique_id}.jpg")
         cv2.imwrite(enhanced_path, enhanced_img)
         
@@ -104,9 +100,9 @@ def upload_file():
         if detection_vis is not None:
             det_path = os.path.join(app.config['PROCESSED_FOLDER'], f"detection_{unique_id}.jpg")
             cv2.imwrite(det_path, detection_vis)
-            detection_url = f'/processed/{os.path.basename(det_path)}'
+            ocr_detection_url = f'/processed/{os.path.basename(det_path)}'
         else:
-            detection_url = f'/processed/crop_{unique_id}.jpg'
+            ocr_detection_url = f'/processed/crop_{unique_id}.jpg'
         
         display_info = {k: v for k, v in ktp_info.items() 
                        if k not in ('raw_text', 'raw_lines') and v}
@@ -117,15 +113,13 @@ def upload_file():
             'raw_lines': ktp_info.get('raw_lines', []),
             'inference_log': inference_log if show_log else [],
             'inference_log_enabled': show_log,
+            'ktp_found': det_result.get('ktp_found', False),
             'images': {
                 'original': f'/processed/original_{unique_id}.jpg',
-                'grayscale': f'/processed/grayscale_{unique_id}.jpg',
-                'preprocessed': f'/processed/preprocessed_{unique_id}.jpg',
-                'edge_detection': f'/processed/edge_{unique_id}.jpg',
-                'contour_detection': f'/processed/contour_{unique_id}.jpg',
-                'largest_rectangle': f'/processed/largest_rect_{unique_id}.jpg',
+                'yolov5_detection': f'/processed/yolov5_detection_{unique_id}.jpg',
                 'cropped': f'/processed/crop_{unique_id}.jpg',
-                'ocr_detection': detection_url
+                'enhanced': f'/processed/enhanced_{unique_id}.jpg',
+                'ocr_detection': ocr_detection_url
             }
         })
         
