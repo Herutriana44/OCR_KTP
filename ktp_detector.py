@@ -4,9 +4,12 @@ Flow: Image -> YOLOv5 Inference -> Filter class 'ktp' (max 1) -> Crop -> Return
 """
 
 import os
+import logging
 from typing import Optional, Tuple, Dict, Any
 import numpy as np
 import cv2
+
+logger = logging.getLogger('ocr_ktp.ktp_detector')
 
 # Path model - best (1).pt
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "best (1).pt")
@@ -163,5 +166,5 @@ def detect_and_crop_ktp(image_path: str) -> Optional[Dict[str, Any]]:
             "ktp_found": True,
         }
     except Exception as e:
-        print(f"Error ktp_detector: {e}")
+        logger.exception("Error ktp_detector (image_path=%s): %s", image_path, str(e))
         return None
